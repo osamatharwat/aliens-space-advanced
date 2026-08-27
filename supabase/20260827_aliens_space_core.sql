@@ -686,3 +686,417 @@ begin
 end; $$;
 
 grant execute on function public.claim_guest_certificate(text) to anon, authenticated;
+
+-- Operational write policies and scoped workflows.
+drop policy if exists applications_scope_read on public.applications;
+create policy applications_scope_read on public.applications for select to authenticated using (user_id = auth.uid() or public.can_manage_scope(committee_id) or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head') or public.has_role(auth.uid(), 'ir_evaluator'));
+drop policy if exists application_reviews_scope_read on public.application_reviews;
+create policy application_reviews_scope_read on public.application_reviews for select to authenticated using (reviewer_id = auth.uid() or exists (select 1 from public.applications a where a.id = application_id and public.can_manage_scope(a.committee_id)) or public.has_role(auth.uid(), 'og'));
+drop policy if exists application_shifts_scope_read on public.application_shifts;
+create policy application_shifts_scope_read on public.application_shifts for select to authenticated using (actor_id = auth.uid() or public.can_manage_scope(old_committee_id) or public.can_manage_scope(new_committee_id) or public.has_role(auth.uid(), 'og'));
+drop policy if exists ir_eligibility_scope_read on public.ir_evaluator_eligibility;
+create policy ir_eligibility_scope_read on public.ir_evaluator_eligibility for select to authenticated using (user_id = auth.uid() or public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head'));
+drop policy if exists ir_assignments_scope_read on public.ir_assignments;
+create policy ir_assignments_scope_read on public.ir_assignments for select to authenticated using (evaluator_id = auth.uid() or member_id = auth.uid() or public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head'));
+drop policy if exists evaluations_scope_read on public.evaluations;
+create policy evaluations_scope_read on public.evaluations for select to authenticated using (evaluator_id = auth.uid() or member_id = auth.uid() or public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head'));
+drop policy if exists notifications_scope_read on public.notifications;
+create policy notifications_scope_read on public.notifications for select to authenticated using (recipient_user_id = auth.uid() or public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head'));
+drop policy if exists audit_og_read on public.audit_logs;
+create policy audit_og_read on public.audit_logs for select to authenticated using (public.has_role(auth.uid(), 'og'));
+drop policy if exists site_content_og_write on public.site_content;
+create policy site_content_og_write on public.site_content for all to authenticated using (public.has_role(auth.uid(), 'og')) with check (public.has_role(auth.uid(), 'og'));
+drop policy if exists questions_lead_write on public.questions;
+create policy questions_lead_write on public.questions for all to authenticated using (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head') or (committee_id is not null and public.can_manage_scope(committee_id))) with check (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head') or (committee_id is not null and public.can_manage_scope(committee_id)));
+drop policy if exists committee_tasks_scope_write on public.committee_tasks;
+create policy committee_tasks_scope_write on public.committee_tasks for insert to authenticated with check (public.can_manage_scope(committee_id) and created_by = auth.uid());
+create policy committee_tasks_scope_update on public.committee_tasks for update to authenticated using (public.can_manage_scope(committee_id) or assigned_to = auth.uid()) with check (public.can_manage_scope(committee_id) or assigned_to = auth.uid());
+create policy committee_tasks_scope_delete on public.committee_tasks for delete to authenticated using (public.can_manage_scope(committee_id));
+drop policy if exists committee_announcements_scope_write on public.committee_announcements;
+create policy committee_announcements_scope_write on public.committee_announcements for all to authenticated using (public.can_manage_scope(committee_id)) with check (public.can_manage_scope(committee_id) and created_by = auth.uid());
+
+drop function if exists public.review_application(uuid, text, public.application_status, text);
+create or replace function public.review_application(p_application_id uuid, p_stage text, p_decision public.application_status, p_notes text default null) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_committee uuid; v_id uuid;
+begin
+  select committee_id into v_committee from public.applications where id = p_application_id for update;
+  if v_committee is null then raise exception 'application not found'; end if;
+  if p_stage = 'ir' then
+    if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head') or public.has_role(auth.uid(), 'ir_evaluator')) then raise exception 'IR review permission denied'; end if;
+  elsif p_stage in ('committee_head', 'leadership') then
+    if not public.can_manage_scope(v_committee) then raise exception 'committee review permission denied'; end if;
+  else raise exception 'invalid review stage'; end if;
+  insert into public.application_reviews(application_id, reviewer_id, stage, decision, notes) values (p_application_id, auth.uid(), p_stage, p_decision, p_notes) returning id into v_id;
+  update public.applications set status = p_decision, reviewed_at = now() where id = p_application_id;
+  return v_id;
+end; $$;
+grant execute on function public.review_application(uuid, text, public.application_status, text) to authenticated;
+
+drop function if exists public.delete_application(uuid);
+create or replace function public.delete_application(p_application_id uuid) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_committee uuid; v_owner uuid;
+begin
+  select committee_id, user_id into v_committee, v_owner from public.applications where id = p_application_id for update;
+  if v_committee is null then raise exception 'application not found'; end if;
+  if auth.uid() <> v_owner and not public.can_manage_scope(v_committee) and not public.has_role(auth.uid(), 'og') then raise exception 'application deletion denied'; end if;
+  delete from public.applications where id = p_application_id;
+  return true;
+end; $$;
+grant execute on function public.delete_application(uuid) to authenticated;
+
+drop function if exists public.set_ir_evaluator_eligibility(uuid, boolean);
+create or replace function public.set_ir_evaluator_eligibility(p_user_id uuid, p_eligible boolean) returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head')) then raise exception 'IR eligibility permission denied'; end if;
+  insert into public.ir_evaluator_eligibility(user_id, is_eligible, max_capacity, updated_by) values (p_user_id, p_eligible, 30, auth.uid()) on conflict (user_id) do update set is_eligible = excluded.is_eligible, max_capacity = 30, updated_by = auth.uid(), updated_at = now();
+  return true;
+end; $$;
+grant execute on function public.set_ir_evaluator_eligibility(uuid, boolean) to authenticated;
+
+drop function if exists public.save_evaluation(uuid, uuid, numeric, text);
+create or replace function public.save_evaluation(p_member_id uuid, p_committee_id uuid, p_score numeric, p_notes text default null) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head') or exists (select 1 from public.ir_assignments a where a.evaluator_id = auth.uid() and a.member_id = p_member_id and a.unassigned_at is null)) then raise exception 'evaluation permission denied'; end if;
+  insert into public.evaluations(member_id, evaluator_id, committee_id, score, notes) values (p_member_id, auth.uid(), p_committee_id, p_score, p_notes) returning id into v_id;
+  return v_id;
+end; $$;
+grant execute on function public.save_evaluation(uuid, uuid, numeric, text) to authenticated;
+
+drop function if exists public.create_question(public.question_category, uuid, text, text, integer);
+create or replace function public.create_question(p_category public.question_category, p_committee_id uuid, p_prompt text, p_help_text text default null, p_sort_order integer default 0) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if p_category = 'committee' then
+    if p_committee_id is null or not public.can_manage_scope(p_committee_id) then raise exception 'committee question permission denied'; end if;
+  elsif p_category = 'ir' then
+    if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head')) then raise exception 'IR question permission denied'; end if;
+  elsif not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'global question permission denied'; end if;
+  insert into public.questions(category, committee_id, prompt, help_text, sort_order, created_by) values (p_category, p_committee_id, trim(p_prompt), p_help_text, p_sort_order, auth.uid()) returning id into v_id;
+  return v_id;
+end; $$;
+grant execute on function public.create_question(public.question_category, uuid, text, text, integer) to authenticated;
+
+drop function if exists public.set_question_enabled(uuid, boolean);
+create or replace function public.set_question_enabled(p_question_id uuid, p_enabled boolean) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_category public.question_category; v_committee uuid;
+begin
+  select category, committee_id into v_category, v_committee from public.questions where id = p_question_id;
+  if not found then raise exception 'question not found'; end if;
+  if v_category = 'committee' and not public.can_manage_scope(v_committee) then raise exception 'question permission denied'; end if;
+  if v_category = 'ir' and not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head')) then raise exception 'question permission denied'; end if;
+  if v_category = 'global' and not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'question permission denied'; end if;
+  update public.questions set is_enabled = p_enabled, updated_at = now() where id = p_question_id;
+  return true;
+end; $$;
+grant execute on function public.set_question_enabled(uuid, boolean) to authenticated;
+
+drop function if exists public.create_event(text, text, text, text, timestamptz, timestamptz, timestamptz, text, uuid, integer, boolean, numeric, boolean, boolean);
+create or replace function public.create_event(p_title text, p_slug text, p_summary text, p_description text, p_starts_at timestamptz, p_ends_at timestamptz, p_registration_closes_at timestamptz, p_location text, p_committee_id uuid, p_capacity integer, p_is_paid boolean, p_price numeric, p_certificate_enabled boolean, p_is_public boolean) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if p_committee_id is null then
+    if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'global event permission denied'; end if;
+  elsif not public.can_manage_scope(p_committee_id) then raise exception 'committee event permission denied'; end if;
+  insert into public.events(title, slug, summary, description, starts_at, ends_at, registration_closes_at, location, committee_id, capacity, is_paid, price, certificate_enabled, is_public, created_by) values (trim(p_title), trim(p_slug), p_summary, p_description, p_starts_at, p_ends_at, p_registration_closes_at, p_location, p_committee_id, p_capacity, p_is_paid, p_price, p_certificate_enabled, p_is_public, auth.uid()) returning id into v_id;
+  return v_id;
+end; $$;
+grant execute on function public.create_event(text, text, text, text, timestamptz, timestamptz, timestamptz, text, uuid, integer, boolean, numeric, boolean, boolean) to authenticated;
+
+drop function if exists public.set_event_published(uuid, boolean);
+create or replace function public.set_event_published(p_event_id uuid, p_published boolean) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_committee uuid; v_creator uuid;
+begin
+  select committee_id, created_by into v_committee, v_creator from public.events where id = p_event_id for update;
+  if not found or (v_committee is null and not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head'))) or (v_committee is not null and not public.can_manage_scope(v_committee)) then raise exception 'event publish permission denied'; end if;
+  update public.events set is_published = p_published, published_at = case when p_published then coalesce(published_at, now()) else null end, updated_at = now() where id = p_event_id;
+  return true;
+end; $$;
+grant execute on function public.set_event_published(uuid, boolean) to authenticated;
+
+drop function if exists public.delete_event(uuid);
+create or replace function public.delete_event(p_event_id uuid) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_committee uuid;
+begin
+  select committee_id into v_committee from public.events where id = p_event_id for update;
+  if not found then raise exception 'event not found'; end if;
+  if v_committee is null then
+    if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'event deletion denied'; end if;
+  elsif not public.can_manage_scope(v_committee) then raise exception 'event deletion denied'; end if;
+  delete from public.events where id = p_event_id;
+  return true;
+end; $$;
+grant execute on function public.delete_event(uuid) to authenticated;
+
+drop function if exists public.create_committee_task(uuid, text, text, uuid, timestamptz);
+create or replace function public.create_committee_task(p_committee_id uuid, p_title text, p_description text default null, p_assigned_to uuid default null, p_due_at timestamptz default null) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if not public.can_manage_scope(p_committee_id) then raise exception 'task creation denied'; end if;
+  insert into public.committee_tasks(committee_id, title, description, assigned_to, due_at, created_by) values (p_committee_id, trim(p_title), p_description, p_assigned_to, p_due_at, auth.uid()) returning id into v_id;
+  return v_id;
+end; $$;
+grant execute on function public.create_committee_task(uuid, text, text, uuid, timestamptz) to authenticated;
+
+drop function if exists public.set_committee_task_completed(uuid, boolean);
+create or replace function public.set_committee_task_completed(p_task_id uuid, p_completed boolean) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_committee uuid; v_assignee uuid;
+begin
+  select committee_id, assigned_to into v_committee, v_assignee from public.committee_tasks where id = p_task_id for update;
+  if not found or (not public.can_manage_scope(v_committee) and v_assignee <> auth.uid()) then raise exception 'task update denied'; end if;
+  update public.committee_tasks set is_completed = p_completed, updated_at = now() where id = p_task_id;
+  return true;
+end; $$;
+grant execute on function public.set_committee_task_completed(uuid, boolean) to authenticated;
+
+drop function if exists public.get_analytics_summary();
+create or replace function public.get_analytics_summary() returns jsonb language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'authentication required'; end if;
+  if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'analytics permission denied'; end if;
+  return jsonb_build_object('applications', (select count(*) from public.applications), 'registrations', (select count(*) from public.event_registrations), 'attendance', (select count(*) from public.attendance where status = 'attended'), 'certificates', (select count(*) from public.certificates), 'active_memberships', (select count(*) from public.committee_memberships where status = 'active'));
+end; $$;
+grant execute on function public.get_analytics_summary() to authenticated;
+
+drop function if exists public.export_applications(uuid);
+create or replace function public.export_applications(p_committee_id uuid default null) returns table(application_id uuid, applicant_name text, applicant_email text, committee_id uuid, status public.application_status, submitted_at timestamptz) language plpgsql security definer set search_path = public as $$
+begin
+  if p_committee_id is null then
+    if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'export permission denied'; end if;
+  elsif not public.can_manage_scope(p_committee_id) then raise exception 'export permission denied'; end if;
+  return query select a.id, coalesce(a.guest_name, p.name), coalesce(a.guest_email, p.email), a.committee_id, a.status, a.submitted_at from public.applications a left join public.profiles p on p.id = a.user_id where p_committee_id is null or a.committee_id = p_committee_id order by a.submitted_at desc;
+end; $$;
+grant execute on function public.export_applications(uuid) to authenticated;
+
+-- Public content visibility and database audit coverage.
+drop policy if exists site_content_public_read on public.site_content;
+create policy site_content_public_read on public.site_content for select to anon, authenticated using (is_published = true);
+drop policy if exists site_settings_public_read on public.site_settings;
+create policy site_settings_public_read on public.site_settings for select to anon, authenticated using (true);
+drop policy if exists gallery_albums_public_read on public.gallery_albums;
+create policy gallery_albums_public_read on public.gallery_albums for select to anon, authenticated using (is_published = true);
+
+drop trigger if exists audit_profiles on public.profiles;
+create trigger audit_profiles after insert or update or delete on public.profiles for each row execute function public.audit_row_change();
+drop trigger if exists audit_memberships on public.committee_memberships;
+create trigger audit_memberships after insert or update or delete on public.committee_memberships for each row execute function public.audit_row_change();
+drop trigger if exists audit_applications on public.applications;
+create trigger audit_applications after insert or update or delete on public.applications for each row execute function public.audit_row_change();
+drop trigger if exists audit_reviews on public.application_reviews;
+create trigger audit_reviews after insert or update or delete on public.application_reviews for each row execute function public.audit_row_change();
+drop trigger if exists audit_shifts on public.application_shifts;
+create trigger audit_shifts after insert or update or delete on public.application_shifts for each row execute function public.audit_row_change();
+drop trigger if exists audit_events on public.events;
+create trigger audit_events after insert or update or delete on public.events for each row execute function public.audit_row_change();
+drop trigger if exists audit_registrations on public.event_registrations;
+create trigger audit_registrations after insert or update or delete on public.event_registrations for each row execute function public.audit_row_change();
+drop trigger if exists audit_attendance on public.attendance;
+create trigger audit_attendance after insert or update or delete on public.attendance for each row execute function public.audit_row_change();
+drop trigger if exists audit_certificates on public.certificates;
+create trigger audit_certificates after insert or update or delete on public.certificates for each row execute function public.audit_row_change();
+drop trigger if exists audit_tasks on public.committee_tasks;
+create trigger audit_tasks after insert or update or delete on public.committee_tasks for each row execute function public.audit_row_change();
+drop trigger if exists audit_resources on public.committee_resources;
+create trigger audit_resources after insert or update or delete on public.committee_resources for each row execute function public.audit_row_change();
+drop trigger if exists audit_announcements on public.committee_announcements;
+create trigger audit_announcements after insert or update or delete on public.committee_announcements for each row execute function public.audit_row_change();
+
+-- Complete scoped CRUD surface for operational dashboards.
+drop function if exists public.update_event(uuid, text, text, text, text, timestamptz, timestamptz, timestamptz, text, integer, boolean, numeric, boolean, boolean);
+create or replace function public.update_event(p_event_id uuid, p_title text, p_summary text, p_description text, p_location text, p_starts_at timestamptz, p_ends_at timestamptz, p_registration_closes_at timestamptz, p_category text, p_capacity integer, p_is_paid boolean, p_price numeric, p_certificate_enabled boolean, p_is_public boolean) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_committee uuid;
+begin
+  select committee_id into v_committee from public.events where id = p_event_id for update;
+  if not found then raise exception 'event not found'; end if;
+  if v_committee is null then
+    if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'global event permission denied'; end if;
+  elsif not public.can_manage_scope(v_committee) then raise exception 'committee event permission denied'; end if;
+  update public.events set title = trim(p_title), summary = p_summary, description = p_description, location = p_location, starts_at = p_starts_at, ends_at = p_ends_at, registration_closes_at = p_registration_closes_at, category = p_category, capacity = p_capacity, is_paid = p_is_paid, price = p_price, certificate_enabled = p_certificate_enabled, is_public = p_is_public, updated_at = now() where id = p_event_id;
+  return true;
+end; $$;
+grant execute on function public.update_event(uuid, text, text, text, text, timestamptz, timestamptz, timestamptz, text, integer, boolean, numeric, boolean, boolean) to authenticated;
+
+drop function if exists public.update_committee_task(uuid, text, text, uuid, timestamptz);
+create or replace function public.update_committee_task(p_task_id uuid, p_title text, p_description text, p_assigned_to uuid, p_due_at timestamptz) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_committee uuid;
+begin
+  select committee_id into v_committee from public.committee_tasks where id = p_task_id for update;
+  if not found or not public.can_manage_scope(v_committee) then raise exception 'task update denied'; end if;
+  update public.committee_tasks set title = trim(p_title), description = p_description, assigned_to = p_assigned_to, due_at = p_due_at, updated_at = now() where id = p_task_id;
+  return true;
+end; $$;
+grant execute on function public.update_committee_task(uuid, text, text, uuid, timestamptz) to authenticated;
+
+drop function if exists public.delete_committee_task(uuid);
+create or replace function public.delete_committee_task(p_task_id uuid) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_committee uuid;
+begin
+  select committee_id into v_committee from public.committee_tasks where id = p_task_id for update;
+  if not found or not public.can_manage_scope(v_committee) then raise exception 'task deletion denied'; end if;
+  delete from public.committee_tasks where id = p_task_id;
+  return true;
+end; $$;
+grant execute on function public.delete_committee_task(uuid) to authenticated;
+
+drop function if exists public.create_committee_announcement(uuid, text, text);
+create or replace function public.create_committee_announcement(p_committee_id uuid, p_title text, p_body text) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if not public.can_manage_scope(p_committee_id) then raise exception 'announcement creation denied'; end if;
+  insert into public.committee_announcements(committee_id, title, body, created_by) values (p_committee_id, trim(p_title), p_body, auth.uid()) returning id into v_id;
+  return v_id;
+end; $$;
+grant execute on function public.create_committee_announcement(uuid, text, text) to authenticated;
+
+drop function if exists public.create_committee_resource(uuid, text, text, text);
+create or replace function public.create_committee_resource(p_committee_id uuid, p_title text, p_object_key text, p_object_url text default null) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if not public.can_manage_scope(p_committee_id) then raise exception 'resource creation denied'; end if;
+  insert into public.committee_resources(committee_id, title, object_key, object_url, uploaded_by) values (p_committee_id, trim(p_title), p_object_key, p_object_url, auth.uid()) returning id into v_id;
+  return v_id;
+end; $$;
+grant execute on function public.create_committee_resource(uuid, text, text, text) to authenticated;
+
+drop function if exists public.delete_committee_resource(uuid);
+create or replace function public.delete_committee_resource(p_resource_id uuid) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_committee uuid;
+begin
+  select committee_id into v_committee from public.committee_resources where id = p_resource_id for update;
+  if not found or not public.can_manage_scope(v_committee) then raise exception 'resource deletion denied'; end if;
+  delete from public.committee_resources where id = p_resource_id;
+  return true;
+end; $$;
+grant execute on function public.delete_committee_resource(uuid) to authenticated;
+
+drop function if exists public.reorder_question(uuid, integer);
+create or replace function public.reorder_question(p_question_id uuid, p_sort_order integer) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_category public.question_category; v_committee uuid;
+begin
+  select category, committee_id into v_category, v_committee from public.questions where id = p_question_id for update;
+  if not found then raise exception 'question not found'; end if;
+  if v_category = 'committee' and not public.can_manage_scope(v_committee) then raise exception 'question permission denied'; end if;
+  if v_category = 'ir' and not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head')) then raise exception 'question permission denied'; end if;
+  if v_category = 'global' and not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'question permission denied'; end if;
+  update public.questions set sort_order = p_sort_order, updated_at = now() where id = p_question_id;
+  return true;
+end; $$;
+grant execute on function public.reorder_question(uuid, integer) to authenticated;
+
+drop function if exists public.update_public_profile(text, text, text, boolean);
+create or replace function public.update_public_profile(p_name text, p_username text, p_avatar_object_key text, p_is_public boolean) returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'authentication required'; end if;
+  update public.profiles set name = trim(p_name), username = nullif(trim(p_username), ''), avatar_object_key = nullif(trim(p_avatar_object_key), ''), is_public = p_is_public, updated_at = now() where id = auth.uid();
+  return true;
+end; $$;
+grant execute on function public.update_public_profile(text, text, text, boolean) to authenticated;
+
+drop function if exists public.export_analytics();
+create or replace function public.export_analytics() returns jsonb language plpgsql security definer set search_path = public as $$
+begin
+  return public.get_analytics_summary();
+end; $$;
+grant execute on function public.export_analytics() to authenticated;
+
+-- Final scoped operations: IR reassignment, question CRUD/preview, evaluation scope, and event WhatsApp settings.
+drop function if exists public.reassign_ir_member(uuid, uuid);
+create or replace function public.reassign_ir_member(p_assignment_id uuid, p_new_evaluator_id uuid) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_member_id uuid; v_capacity integer; v_active integer; v_new_id uuid;
+begin
+  if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head')) then raise exception 'IR reassignment permission denied'; end if;
+  select member_id into v_member_id from public.ir_assignments where id = p_assignment_id and unassigned_at is null for update;
+  if v_member_id is null then raise exception 'active assignment not found'; end if;
+  if not exists (select 1 from public.ir_evaluator_eligibility where user_id = p_new_evaluator_id and is_eligible) then raise exception 'new evaluator is not eligible'; end if;
+  select max_capacity, (select count(*) from public.ir_assignments a where a.evaluator_id = p_new_evaluator_id and a.unassigned_at is null) into v_capacity, v_active from public.ir_evaluator_eligibility where user_id = p_new_evaluator_id for update;
+  if v_active >= v_capacity then raise exception 'new evaluator capacity reached'; end if;
+  update public.ir_assignments set unassigned_at = now() where id = p_assignment_id;
+  insert into public.ir_assignments(evaluator_id, member_id, assigned_by) values (p_new_evaluator_id, v_member_id, auth.uid()) returning id into v_new_id;
+  insert into public.audit_logs(actor_id, action, entity_type, entity_id, metadata) values (auth.uid(), 'reassign', 'ir_assignment', v_new_id, jsonb_build_object('previous_assignment_id', p_assignment_id, 'new_evaluator_id', p_new_evaluator_id, 'member_id', v_member_id));
+  return v_new_id;
+end; $$;
+grant execute on function public.reassign_ir_member(uuid, uuid) to authenticated;
+
+create or replace function public.save_evaluation(p_member_id uuid, p_committee_id uuid, p_score numeric, p_notes text default null) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head') or (p_committee_id is not null and public.can_manage_scope(p_committee_id)) or exists (select 1 from public.ir_assignments a where a.evaluator_id = auth.uid() and a.member_id = p_member_id and a.unassigned_at is null)) then raise exception 'evaluation permission denied'; end if;
+  insert into public.evaluations(member_id, evaluator_id, committee_id, score, notes) values (p_member_id, auth.uid(), p_committee_id, p_score, p_notes) returning id into v_id;
+  return v_id;
+end; $$;
+grant execute on function public.save_evaluation(uuid, uuid, numeric, text) to authenticated;
+
+drop function if exists public.update_question(uuid, text, text, integer);
+create or replace function public.update_question(p_question_id uuid, p_prompt text, p_help_text text, p_sort_order integer) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_category public.question_category; v_committee uuid;
+begin
+  select category, committee_id into v_category, v_committee from public.questions where id = p_question_id for update;
+  if not found then raise exception 'question not found'; end if;
+  if v_category = 'committee' and not public.can_manage_scope(v_committee) then raise exception 'question permission denied'; end if;
+  if v_category = 'ir' and not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head')) then raise exception 'question permission denied'; end if;
+  if v_category = 'global' and not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'question permission denied'; end if;
+  update public.questions set prompt = trim(p_prompt), help_text = p_help_text, sort_order = p_sort_order, updated_at = now() where id = p_question_id;
+  return true;
+end; $$;
+grant execute on function public.update_question(uuid, text, text, integer) to authenticated;
+
+drop function if exists public.delete_question(uuid);
+create or replace function public.delete_question(p_question_id uuid) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_category public.question_category; v_committee uuid;
+begin
+  select category, committee_id into v_category, v_committee from public.questions where id = p_question_id for update;
+  if not found then raise exception 'question not found'; end if;
+  if v_category = 'committee' and not public.can_manage_scope(v_committee) then raise exception 'question permission denied'; end if;
+  if v_category = 'ir' and not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'ir_head') or public.has_role(auth.uid(), 'ir_sub_head')) then raise exception 'question permission denied'; end if;
+  if v_category = 'global' and not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'question permission denied'; end if;
+  delete from public.questions where id = p_question_id;
+  return true;
+end; $$;
+grant execute on function public.delete_question(uuid) to authenticated;
+
+drop function if exists public.preview_questions(uuid);
+create or replace function public.preview_questions(p_committee_id uuid default null) returns table(id uuid, category public.question_category, prompt text, help_text text, sort_order integer) language sql stable security invoker set search_path = public as $$
+  select q.id, q.category, q.prompt, q.help_text, q.sort_order from public.questions q where q.is_enabled and (q.category <> 'committee' or q.committee_id = p_committee_id) order by q.category, q.sort_order, q.created_at;
+$$;
+grant execute on function public.preview_questions(uuid) to anon, authenticated;
+
+drop function if exists public.set_event_whatsapp_group(uuid, text);
+create or replace function public.set_event_whatsapp_group(p_event_id uuid, p_group_url text) returns boolean language plpgsql security definer set search_path = public as $$
+declare v_committee uuid;
+begin
+  select committee_id into v_committee from public.events where id = p_event_id for update;
+  if not found or (v_committee is null and not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head'))) or (v_committee is not null and not public.can_manage_scope(v_committee)) then raise exception 'event WhatsApp setting denied'; end if;
+  update public.events set whatsapp_group_url = nullif(trim(p_group_url), ''), updated_at = now() where id = p_event_id;
+  return true;
+end; $$;
+grant execute on function public.set_event_whatsapp_group(uuid, text) to authenticated;
+
+create or replace function public.shift_application(p_application_id uuid, p_new_committee_id uuid, p_reason text) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_application public.applications%rowtype; v_shift uuid; v_recipient uuid; v_old_committee uuid;
+begin
+  select * into v_application from public.applications where id = p_application_id for update;
+  if v_application.id is null then raise exception 'application not found'; end if;
+  if not (public.can_manage_scope(v_application.committee_id) or public.has_role(auth.uid(), 'og')) then raise exception 'shift permission denied'; end if;
+  if not exists (select 1 from public.committees where id = p_new_committee_id and is_active) then raise exception 'destination committee unavailable'; end if;
+  v_old_committee := v_application.committee_id;
+  update public.applications set committee_id = p_new_committee_id, status = 'submitted', reviewed_at = null where id = p_application_id;
+  insert into public.application_shifts(application_id, old_committee_id, new_committee_id, reason, actor_id) values (p_application_id, v_old_committee, p_new_committee_id, trim(p_reason), auth.uid()) returning id into v_shift;
+  v_recipient := v_application.user_id;
+  if v_recipient is not null then insert into public.notifications(recipient_user_id, type, reference_id, message, status) values (v_recipient, 'committee_shift', p_application_id, 'Your Aliens Space application moved to a new committee.', 'queued'); end if;
+  insert into public.audit_logs(actor_id, action, entity_type, entity_id, metadata) values (auth.uid(), 'shift', 'application', p_application_id, jsonb_build_object('old_committee', v_old_committee, 'new_committee', p_new_committee_id, 'shift_id', v_shift, 'notification', case when v_recipient is null then 'not_applicable' else 'queued' end));
+  return v_shift;
+end; $$;
+grant execute on function public.shift_application(uuid, uuid, text) to authenticated;
+
+-- Replace the initial event-create signature with the complete event settings surface.
+drop function if exists public.create_event(text, text, text, text, timestamptz, timestamptz, timestamptz, text, uuid, integer, boolean, numeric, boolean, boolean);
+create or replace function public.create_event(p_title text, p_slug text, p_summary text, p_description text, p_starts_at timestamptz, p_ends_at timestamptz, p_registration_closes_at timestamptz, p_location text, p_category text, p_committee_id uuid, p_capacity integer, p_is_paid boolean, p_price numeric, p_whatsapp_group_url text, p_certificate_enabled boolean, p_is_public boolean) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if p_committee_id is null then
+    if not (public.has_role(auth.uid(), 'og') or public.has_role(auth.uid(), 'team_head') or public.has_role(auth.uid(), 'team_sub_head')) then raise exception 'global event permission denied'; end if;
+  elsif not public.can_manage_scope(p_committee_id) then raise exception 'committee event permission denied'; end if;
+  insert into public.events(title, slug, summary, description, starts_at, ends_at, registration_closes_at, location, category, committee_id, capacity, is_paid, price, whatsapp_group_url, certificate_enabled, is_public, created_by) values (trim(p_title), trim(p_slug), p_summary, p_description, p_starts_at, p_ends_at, p_registration_closes_at, p_location, nullif(trim(p_category), ''), p_committee_id, p_capacity, p_is_paid, p_price, nullif(trim(p_whatsapp_group_url), ''), p_certificate_enabled, p_is_public, auth.uid()) returning id into v_id;
+  return v_id;
+end; $$;
+grant execute on function public.create_event(text, text, text, text, timestamptz, timestamptz, timestamptz, text, text, uuid, integer, boolean, numeric, text, boolean, boolean) to authenticated;

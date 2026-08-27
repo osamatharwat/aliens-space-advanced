@@ -115,3 +115,32 @@ describe("scoped module regressions", () => {
     expect(scopedModuleSource).toContain('select("*", { count: "exact", head: true })');
   });
 });
+
+describe("canonical operational migration", () => {
+  it("contains database-enforced writes for review, eligibility, evaluation, questions, events, tasks, analytics, and exports", () => {
+    for (const functionName of ["review_application", "delete_application", "set_ir_evaluator_eligibility", "save_evaluation", "create_question", "set_question_enabled", "create_event", "set_event_published", "delete_event", "create_committee_task", "set_committee_task_completed", "get_analytics_summary", "export_applications"]) expect(migration).toContain(`create or replace function public.${functionName}`);
+  });
+
+  it("contains scope-aware write policies and audit triggers", () => {
+    for (const policyName of ["applications_scope_read", "questions_lead_write", "committee_tasks_scope_write", "committee_announcements_scope_write", "site_content_og_write"]) expect(migration).toContain(`create policy ${policyName}`);
+    for (const triggerName of ["audit_applications", "audit_events", "audit_registrations", "audit_certificates", "audit_tasks"]) expect(migration).toContain(`create trigger ${triggerName}`);
+  });
+});
+
+describe("remaining operational safeguards", () => {
+  it("contains reassignment, preview, event WhatsApp, and shift-notification paths", () => {
+    for (const functionName of ["reassign_ir_member", "update_question", "delete_question", "preview_questions", "set_event_whatsapp_group"]) expect(migration).toContain(`create or replace function public.${functionName}`);
+    expect(migration).toContain("type, reference_id, message, status");
+    expect(migration).toContain("'committee_shift'");
+    expect(migration).toContain("'queued'");
+    expect(migration).toContain("p_category text, p_committee_id uuid");
+    expect(migration).toContain("p_whatsapp_group_url text");
+    expect(migration).toContain("whatsapp_group_url, certificate_enabled, is_public");
+  });
+
+  it("keeps avatar object keys and private profile fields behind authenticated access", () => {
+    expect(migration).toContain("avatar_object_key");
+    expect(migration).toContain("self_profile_read");
+    expect(migration).toContain("public_members");
+  });
+});

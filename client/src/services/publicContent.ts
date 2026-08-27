@@ -32,6 +32,16 @@ export type PublicMember = {
   committee_name: string | null;
 };
 
+export type PublicSiteContent = {
+  id: string;
+  content_key: string;
+  title: string | null;
+  body: string | null;
+  object_key: string | null;
+  is_published: boolean;
+  sort_order: number;
+};
+
 export type PublicMedia = {
   id: string;
   title: string;
@@ -48,6 +58,7 @@ export type PublicContent = {
   projects: PublicMedia[];
   achievements: PublicMedia[];
   partners: PublicMedia[];
+  siteContent: PublicSiteContent[];
 };
 
 async function readTable<T>(table: string, query: (builder: any) => any): Promise<T[]> {
@@ -61,7 +72,7 @@ async function readTable<T>(table: string, query: (builder: any) => any): Promis
 }
 
 export async function getPublicContent(): Promise<PublicContent> {
-  const [committees, events, members, gallery, projects, achievements, partners] = await Promise.all([
+  const [committees, events, members, gallery, projects, achievements, partners, siteContent] = await Promise.all([
     readTable<PublicCommittee>("committees", (builder) => builder.select("id,name,slug,short_description,public_description,accent").eq("is_public", true).order("sort_order")),
     readTable<PublicEvent>("events", (builder) => builder.select("id,title,slug,summary,starts_at,ends_at,registration_closes_at,location,category,capacity,certificate_enabled").eq("is_published", true).order("starts_at", { ascending: true }).limit(6)),
     readTable<PublicMember>("public_members", (builder) => builder.select("id,name,username,avatar_url,public_position,committee_name").order("name").limit(12)),
@@ -69,9 +80,10 @@ export async function getPublicContent(): Promise<PublicContent> {
     readTable<PublicMedia>("projects", (builder) => builder.select("id,title,caption,object_url,published_at").eq("is_published", true).order("published_at", { ascending: false }).limit(6)),
     readTable<PublicMedia>("achievements", (builder) => builder.select("id,title,caption,object_url,published_at").eq("is_published", true).order("published_at", { ascending: false }).limit(6)),
     readTable<PublicMedia>("partners", (builder) => builder.select("id,title,caption,object_url,published_at").eq("is_published", true).order("published_at", { ascending: false }).limit(12)),
+    readTable<PublicSiteContent>("site_content", (builder) => builder.select("id,content_key,title,body,object_key,is_published,sort_order").eq("is_published", true).order("sort_order")),
   ]);
 
-  return { committees, events, members, gallery, projects, achievements, partners };
+  return { committees, events, members, gallery, projects, achievements, partners, siteContent };
 }
 
 export async function verifyCertificate(code: string) {

@@ -18,6 +18,9 @@ function Router() {
       <Route path="/gallery" component={PublicCatalogPage} />
       <Route path="/projects" component={PublicCatalogPage} />
       <Route path="/members" component={PublicCatalogPage} />
+      <Route path="/partners" component={PublicCatalogPage} />
+      <Route path="/about" component={PublicCatalogPage} />
+      <Route path="/pr" component={PublicCatalogPage} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/workspace" component={WorkspacePage} />
       <Route path="/workspace/committee" component={ScopedModulePage} />
