@@ -60,18 +60,18 @@
 - [x] Add category and WhatsApp-group fields to the canonical create_event RPC and its domain wrapper, with regression assertions for persistence through the protected event surface.
 - [x] Add an executable createEvent wrapper test proving category and WhatsApp-group values are passed to the protected RPC; leave database persistence integration explicitly external until Supabase migration is applied.
 
-## 2.0 Technical Contract Audit (CANCELLED BY USER)
+## 2.0 Technical Contract Audit (CANCELLED BY USER — disposition recorded)
 
-- [ ] Inventory the live Supabase public schema, columns, keys, constraints, indexes, views, triggers, functions, RLS, storage buckets/policies, and row counts; mark unavailable facts UNVERIFIED.
-- [ ] Trace Supabase Auth → profile → membership → role → committee → permission → dashboard and classify fallbacks SAFE/LEGACY/UNSAFE/UNVERIFIED.
-- [ ] Scan the full codebase for LocalStorage, sessionStorage, AppStore, seed/mock/fallback/hardcoded records, legacy table names, and duplicated models.
-- [ ] Produce the SUPABASE-ONLY GAP LIST from actual code evidence.
-- [ ] Build the entity contract matrix for every required entity with actual tables, services, pages, RPCs, RLS, FKs, verified reads/writes, and status.
-- [ ] Build the DATABASE/CODE MISMATCH LIST with file, function, expected, actual, and required fix.
-- [ ] Audit every dashboard action and produce the module/action/handler/service/RPC/RLS/scope/refresh/audit/verified matrix.
-- [ ] Trace recruitment, access-code, IR, evaluation, events, attendance, certificates, shifting, WhatsApp, privacy, and storage flows end to end.
-- [ ] Validate live operational behavior where credentials and safe non-production access permit; never infer runtime success from source presence.
-- [ ] Write the final factual audit report with verified, partial, broken, and unverified findings plus evidence paths and references.
+- [x] CANCELLED BY USER: Inventory the live Supabase public schema, columns, keys, constraints, indexes, views, triggers, functions, RLS, storage buckets/policies, and row counts; mark unavailable facts UNVERIFIED.
+- [x] CANCELLED BY USER: Trace Supabase Auth → profile → membership → role → committee → permission → dashboard and classify fallbacks SAFE/LEGACY/UNSAFE/UNVERIFIED.
+- [x] CANCELLED BY USER: Scan the full codebase for LocalStorage, sessionStorage, AppStore, seed/mock/fallback/hardcoded records, legacy table names, and duplicated models.
+- [x] CANCELLED BY USER: Produce the SUPABASE-ONLY GAP LIST from actual code evidence.
+- [x] CANCELLED BY USER: Build the entity contract matrix for every required entity with actual tables, services, pages, RPCs, RLS, FKs, verified reads/writes, and status.
+- [x] CANCELLED BY USER: Build the DATABASE/CODE MISMATCH LIST with file, function, expected, actual, and required fix.
+- [x] CANCELLED BY USER: Audit every dashboard action and produce the module/action/handler/service/RPC/RLS/scope/refresh/audit/verified matrix.
+- [x] CANCELLED BY USER: Trace recruitment, access-code, IR, evaluation, events, attendance, certificates, shifting, WhatsApp, privacy, and storage flows end to end.
+- [x] CANCELLED BY USER: Validate live operational behavior where credentials and safe non-production access permit; never infer runtime success from source presence.
+- [x] CANCELLED BY USER: Write the final factual audit report with verified, partial, broken, and unverified findings plus evidence paths and references.
 
 ## Database Rebuild / Hardening (frontend intentionally frozen)
 
