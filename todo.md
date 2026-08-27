@@ -59,3 +59,36 @@
 - [x] Wire shift operations to create queued notification records and track sent/failed/deferred delivery states; provider delivery remains optional.
 - [x] Add category and WhatsApp-group fields to the canonical create_event RPC and its domain wrapper, with regression assertions for persistence through the protected event surface.
 - [x] Add an executable createEvent wrapper test proving category and WhatsApp-group values are passed to the protected RPC; leave database persistence integration explicitly external until Supabase migration is applied.
+
+## 2.0 Technical Contract Audit (CANCELLED BY USER)
+
+- [ ] Inventory the live Supabase public schema, columns, keys, constraints, indexes, views, triggers, functions, RLS, storage buckets/policies, and row counts; mark unavailable facts UNVERIFIED.
+- [ ] Trace Supabase Auth → profile → membership → role → committee → permission → dashboard and classify fallbacks SAFE/LEGACY/UNSAFE/UNVERIFIED.
+- [ ] Scan the full codebase for LocalStorage, sessionStorage, AppStore, seed/mock/fallback/hardcoded records, legacy table names, and duplicated models.
+- [ ] Produce the SUPABASE-ONLY GAP LIST from actual code evidence.
+- [ ] Build the entity contract matrix for every required entity with actual tables, services, pages, RPCs, RLS, FKs, verified reads/writes, and status.
+- [ ] Build the DATABASE/CODE MISMATCH LIST with file, function, expected, actual, and required fix.
+- [ ] Audit every dashboard action and produce the module/action/handler/service/RPC/RLS/scope/refresh/audit/verified matrix.
+- [ ] Trace recruitment, access-code, IR, evaluation, events, attendance, certificates, shifting, WhatsApp, privacy, and storage flows end to end.
+- [ ] Validate live operational behavior where credentials and safe non-production access permit; never infer runtime success from source presence.
+- [ ] Write the final factual audit report with verified, partial, broken, and unverified findings plus evidence paths and references.
+
+## Database Rebuild / Hardening (frontend intentionally frozen)
+
+- [x] Compare the current canonical SQL against the new final database contract and record missing or conflicting requirements.
+- [x] Generate `supabase/ALIENS_FINAL_DATABASE.sql` as the complete canonical schema with UUID authority, constraints, RLS, RPCs, triggers, and storage policies.
+- [x] Generate `supabase/ALIENS_DATABASE_MIGRATION.sql` as a non-destructive, documented transformation path for the current bootstrap/test state.
+- [x] Add a safe bootstrap verification section for required committees, especially Data Analysis, without inventing production records.
+- [x] Perform static SQL/schema/security checks and document all live Supabase facts that remain UNVERIFIED because the connector/API is unavailable.
+- [x] Produce the final database rebuild report with relationship map, RLS/RPC/trigger/storage matrices, migration status, blockers, manual commands, and unverified items.
+- [x] Align final storage buckets with the requested contract: public-assets, avatars, gallery, private-files, certificates, and document their policies.
+- [x] Fix issue_certificate so certificates.event_id stores the actual event UUID, not the registration UUID.
+- [x] Expand the migration file with storage transition handling and a preserved-vs-obsolete legacy/bootstrap inventory.
+- [x] Update the rebuild report with explicit trigger and storage matrices plus exact manual apply/verify commands.
+- [x] Re-run static contract checks and read todo.md before the next checkpoint.
+- [x] Expand the migration inventory with an explicit preserved/review/obsolete/replace classification for every known legacy/bootstrap table, view, bucket, and derived authority field.
+- [x] Mirror the preserved-vs-obsolete classification in the database rebuild report with exact names and intended actions.
+- [x] Add explicit preserved/review/obsolete/replace classification entries for known database views, including public_members and any legacy/bootstrap views.
+- [x] Mirror the complete view classification exactly in the database rebuild report, then rerun the static inventory check before the next checkpoint.
+- [x] Enumerate every locally known view name from canonical SQL, migration files, and legacy project artifacts, then classify each exact name explicitly; do not invent unknown live view names.
+- [x] Mirror the exact locally known view list in the rebuild report and mark any unobservable live-only views UNVERIFIED rather than claiming completeness.
