@@ -1,0 +1,51 @@
+# ALIENS SPACE TODO
+
+- [x] Replace the starter home page with the new Aliens Space public marketing shell.
+- [x] Extract approved branding, content, sections, workflows, and UX ideas from the legacy ZIP into a migration/content plan.
+- [x] Remove all active frontend operational LocalStorage, AppStore, mockData, seedData, INITIAL_*, hardcoded operational content, and legacy fallback dependencies.
+- [x] Define the canonical normalized relational domain model for profiles, committees, memberships, roles, permissions, recruitment, applications, questions, IR, evaluations, events, registrations, attendance, certificates, tasks, resources, announcements, notifications, analytics, and audit logs.
+- [ ] Add database constraints, foreign keys, unique constraints, check constraints, and indexes for the canonical model.
+- [ ] Implement database-enforced committee positions and the rule that every committee head/sub-head is a board member.
+- [ ] Implement secure database/RPC authorization helpers based on auth.uid(), membership, role, committee, and scope.
+- [ ] Implement restrictive RLS policies for all sensitive domain tables without broad USING(true) or WITH CHECK(true) policies.
+- [x] Implement Supabase Auth-compatible signup, login, logout, session persistence, password reset, and optional email confirmation flows; external Auth redirect settings remain documented for verification.
+- [ ] Implement one authoritative profile linked to the authenticated user and secure avatar upload/refetch through object storage references.
+- [ ] Implement database-backed public content for home, about, committees, members, events, gallery/albums, projects, achievements, partners, PR, recruitment, and certificate verification.
+- [ ] Implement atomic hashed committee access-code redemption with expiry, usage limits, single-use support, duplicate/race protection, membership creation, and audit logging.
+- [ ] Implement database-backed global, committee, and IR question banks with CRUD, reorder, enable/disable, preview, scoped permissions, and immutable application snapshots.
+- [ ] Implement recruitment application creation for guests and registered users, scoped review, decisions, conflict, deletion, shifting, export, and audit history.
+- [ ] Implement normalized IR evaluator eligibility, assignment history, one active evaluator per member, assignment capacity of 30, and assign/unassign/reassign flows.
+- [ ] Implement scoped evaluations for assigned members, own committee members, leadership scopes, and authorized OG access.
+- [ ] Implement event create/edit/delete/publish/public-private/category/committee/capacity/paid-free/WhatsApp/certificate settings.
+- [ ] Implement authenticated and guest event registration with duplicate, invalid-event, closed-registration, and capacity protections.
+- [ ] Implement authorized attendance marking with attended/not_attended operational state and server-side scope checks.
+- [ ] Implement server-authorized certificate issuance using original registration names, immutable unique verification codes, configured signatory values, and one certificate per registration.
+- [ ] Implement member certificate view/download/print persistence and secure guest certificate claim/access without public enumeration.
+- [ ] Implement public certificate verification that exposes only valid status, recipient, event, date, and signatory.
+- [ ] Implement committee workspaces with overview, members, tasks, events, resources, announcements, activity, and permitted actions without cross-committee leakage.
+- [ ] Implement one canonical committee task model with scoped create/assign/edit/delete/complete operations.
+- [ ] Implement Data Analysis as a complete committee with recruitment, membership, workspace, tasks, and explicit analytics permissions.
+- [ ] Implement real Supabase-derived analytics for applicants, registrations, attendance, certificates, committee activity, engagement, and authorized evaluations.
+- [ ] Implement permission-scoped exports for applications and analytics.
+- [ ] Implement profile privacy boundaries for approved public data versus private email, phone, student ID, IR assignment, evaluations, warnings, and notes.
+- [ ] Implement audit logging for all important operations without passwords, raw access codes, secrets, or client-trusted actor IDs.
+- [ ] Implement notification records supporting queued/sent/failed WhatsApp-compatible shift notifications from secure server workflows.
+- [x] Build the public/member/committee/IR/team/OG navigation foundation with private/auth boundaries; granular dashboard actions remain in the staged backend milestone.
+- [x] Evaluate and reuse the scaffold DashboardLayout compatibility layer and existing shadcn/ui components where applicable.
+- [x] Add Vitest guard coverage for Supabase configuration, legacy-runtime prevention, and critical certificate/access-code security invariants.
+- [x] Run type check, tests, clean production build, runtime verification, and browser visual verification; external Supabase/RLS flows remain listed as unverified.
+- [x] Produce architecture summary, schema, relationship map, RLS matrix, RPC list, storage structure, permission matrix, dashboard/committee capability matrices, migration plan, and unverified-item documentation.
+- [ ] Save the final verified project checkpoint and provide the project version for user review and publishing through the Management UI.
+- [x] Implement real role- and scope-aware navigation sourced from Supabase roles/memberships, with different entries/modules for member, committee lead, IR, team leadership, and OG users.
+- [x] Add tests or code-level guards proving unauthorized roles cannot see or access scope-specific navigation/actions.
+- [x] Implement distinct role-scoped dashboard/workspace modules for committee lead, IR, team leadership, and OG instead of hash-only links.
+- [x] Add code-level action guards and tests for unauthorized access to scope-specific modules and operations.
+- [x] Fix ScopedModulePage module definitions so every counter reads only real schema tables/views and failed data-source queries render explicit errors.
+- [x] Implement guarded scope-specific actions for committee/IR/leadership/OG modules, then test that unauthorized users cannot execute them.
+- [x] Add route/module regression tests for unauthorized direct access and failed data-source handling.
+- [x] Implement real committee, IR, leadership, and OG operations beyond refresh, wired to Supabase protected reads with explicit unauthorized/error states; write mutations remain server RPC-only.
+- [x] Add executable operation guards/tests proving unauthorized roles cannot invoke scoped operations.
+- [x] Add route-state regression coverage exercised by ScopedModulePage for denial and failed-source error rendering.
+- [x] Add a component-level render test for ScopedModulePage covering unauthenticated, unauthorized, ready, and failed-source UI states with mocked Supabase/auth access.
+- [x] Replace deprecated react-test-renderer coverage with a supported component-testing approach and eliminate all React act warnings.
+- [x] Run the full test suite again and confirm ScopedModulePage render tests pass with zero runtime/test-environment warnings.
